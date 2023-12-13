@@ -11,9 +11,15 @@ public struct Authorization {
         case copyRights(OSStatus)
         case exec(OSStatus)
     }
-    
+
+    /// Runs an executable tool with root privileges.
+    /// - Parameters:
+    ///   - pathToTool: The full POSIX pathname of the tool to execute.
+    ///   - arguments: Array of strings to send to the tool.
+    /// - Returns: A file handle to the output of the command or an error.
     public static func executeWithPrivileges(
-        _ command: String
+        pathToTool: String,
+        arguments: [String] = []
     ) -> Result<FileHandle, Error> {
         
         let RTLD_DEFAULT = UnsafeMutableRawPointer(bitPattern: -2)
@@ -36,17 +42,16 @@ public struct Authorization {
         }
         defer { AuthorizationFree(authorizationRef!, [.destroyRights]) }
         
-        var components = command.components(separatedBy: " ")
-        var path = components.remove(at: 0).cString(using: .utf8)!
+        var pathCString = pathToTool.cString(using: .utf8)!
         let name = kAuthorizationRightExecute.cString(using: .utf8)!
         
         var items: AuthorizationItem = name.withUnsafeBufferPointer { nameBuf in
-            path.withUnsafeBufferPointer { pathBuf in
+            pathCString.withUnsafeBufferPointer { pathBuf in
                 let pathPtr =
                     UnsafeMutableRawPointer(mutating: pathBuf.baseAddress!)
                 return AuthorizationItem(
                     name: nameBuf.baseAddress!,
-                    valueLength: path.count,
+                    valueLength: pathCString.count,
                     value: pathPtr,
                     flags: 0
                 )
@@ -75,13 +80,13 @@ public struct Authorization {
             return .failure(.copyRights(err))
         }
         
-        let rest = components.map { $0.cString(using: .utf8)! }
-        var args = Array<UnsafePointer<CChar>?>(
+        let argsCString = arguments.map { $0.cString(using: .utf8)! }
+        var argsArgvStyle = Array<UnsafePointer<CChar>?>(
             repeating: nil,
-            count: rest.count + 1
+            count: argsCString.count + 1
         )
-        for (idx, arg) in rest.enumerated() {
-            args[idx] = UnsafePointer<CChar>?(arg)
+        for (idx, arg) in argsCString.enumerated() {
+            argsArgvStyle[idx] = UnsafePointer<CChar>?(arg)
         }
         
         var file = FILE()
@@ -89,7 +94,7 @@ public struct Authorization {
         
         (err, fh) = withUnsafeMutablePointer(to: &file) { file in
             var pipe = file
-            let err = fn(authorizationRef!, &path, [], &args, &pipe)
+            let err = fn(authorizationRef!, &pathCString, [], &argsArgvStyle, &pipe)
             guard err == errAuthorizationSuccess else {
                 return (err, nil)
             }
@@ -103,5 +108,14 @@ public struct Authorization {
             return .failure(.exec(err))
         }
         return .success(fh!)
+    }
+    
+    @available(*, deprecated, message: "Use executeWithPrivileges(pathToTool:arguments:) instead.")
+    public static func executeWithPrivileges(
+        _ command: String
+    ) -> Result<FileHandle, Error> {
+        var components = command.components(separatedBy: " ")
+        let path = components.remove(at: 0)
+        return Self.executeWithPrivileges(pathToTool: path, arguments: components)
     }
 }
