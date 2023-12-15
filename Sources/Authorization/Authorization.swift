@@ -3,18 +3,12 @@ import Swift
 
 public struct Authorization {
     
-    public enum Error: Swift.Error {
-        case create(OSStatus)
-        case copyRights(OSStatus)
-        case exec(OSStatus)
-    }
-    
     /// Creates an authorizartion allowing to use specified executabale tools with admin privileges.
     /// - Parameter pathsToTools: A set containing paths to tools for which we require authorization.
     /// - Returns: An opaque reference to an authorization object authorized to the specified tools or an error.
     public static func authorize(
         pathsToTools: Set<String>
-    ) -> Result<AuthorizationRef, Error> {
+    ) -> Result<AuthorizationRef, AuthorizationError> {
         var authorizationRef: AuthorizationRef? = nil
         var err = AuthorizationCreate(nil, nil, [], &authorizationRef)
         guard err == errAuthorizationSuccess else {
@@ -74,7 +68,7 @@ public struct Authorization {
         authorization: AuthorizationRef? = nil,
         pathToTool: String,
         arguments: [String] = []
-    ) -> Result<FileHandle, Error> {
+    ) -> Result<FileHandle, AuthorizationError> {
         let RTLD_DEFAULT = UnsafeMutableRawPointer(bitPattern: -2)
         var fn: @convention(c) (
             AuthorizationRef,
@@ -141,7 +135,7 @@ public struct Authorization {
     @available(*, deprecated, message: "Use executeWithPrivileges(pathToTool:arguments:) instead.")
     public static func executeWithPrivileges(
         _ command: String
-    ) -> Result<FileHandle, Error> {
+    ) -> Result<FileHandle, AuthorizationError> {
         var components = command.components(separatedBy: " ")
         let path = components.remove(at: 0)
         return Self.executeWithPrivileges(pathToTool: path, arguments: components)
