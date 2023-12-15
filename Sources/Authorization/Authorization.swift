@@ -1,9 +1,6 @@
 import Foundation
 import Swift
 
-// https://github.com/sveinbjornt/STPrivilegedTask/blob/master/STPrivilegedTask.m
-// https://github.com/gui-dos/Guigna/blob/9fdd75ca0337c8081e2a2727960389c7dbf8d694/Legacy/Guigna-Swift/Guigna/GAgent.swift#L42-L80
-
 public struct Authorization {
     
     public enum Error: Swift.Error {
@@ -11,56 +8,40 @@ public struct Authorization {
         case copyRights(OSStatus)
         case exec(OSStatus)
     }
-
-    /// Runs an executable tool with root privileges.
-    /// - Parameters:
-    ///   - pathToTool: The full POSIX pathname of the tool to execute.
-    ///   - arguments: Array of strings to send to the tool.
-    /// - Returns: A file handle to the output of the command or an error.
-    public static func executeWithPrivileges(
-        pathToTool: String,
-        arguments: [String] = []
-    ) -> Result<FileHandle, Error> {
-        
-        let RTLD_DEFAULT = UnsafeMutableRawPointer(bitPattern: -2)
-        var fn: @convention(c) (
-            AuthorizationRef,
-            UnsafePointer<CChar>,  // path
-            AuthorizationFlags,
-            UnsafePointer<UnsafePointer<CChar>?>,  // args
-            UnsafeMutablePointer<UnsafeMutablePointer<FILE>>?
-        ) -> OSStatus
-        fn = unsafeBitCast(
-            dlsym(RTLD_DEFAULT, "AuthorizationExecuteWithPrivileges"),
-            to: type(of: fn)
-        )
-        
+    
+    /// Creates an authorizartion allowing to use specified executabale tools with admin privileges.
+    /// - Parameter pathsToTools: A set containing paths to tools for which we require authorization.
+    /// - Returns: An opaque reference to an authorization object authorized to the specified tools or an error.
+    public static func authorize(
+        pathsToTools: Set<String>
+    ) -> Result<AuthorizationRef, Error> {
         var authorizationRef: AuthorizationRef? = nil
         var err = AuthorizationCreate(nil, nil, [], &authorizationRef)
         guard err == errAuthorizationSuccess else {
             return .failure(.create(err))
         }
-        defer { AuthorizationFree(authorizationRef!, [.destroyRights]) }
         
-        var pathCString = pathToTool.cString(using: .utf8)!
+        let pathsCString = pathsToTools.map { $0.cString(using: .utf8)! }
         let name = kAuthorizationRightExecute.cString(using: .utf8)!
         
-        var items: AuthorizationItem = name.withUnsafeBufferPointer { nameBuf in
-            pathCString.withUnsafeBufferPointer { pathBuf in
-                let pathPtr =
-                    UnsafeMutableRawPointer(mutating: pathBuf.baseAddress!)
-                return AuthorizationItem(
-                    name: nameBuf.baseAddress!,
-                    valueLength: pathCString.count,
-                    value: pathPtr,
-                    flags: 0
-                )
+        var items = pathsCString.map { path in
+            name.withUnsafeBufferPointer { nameBuf in
+                path.withUnsafeBufferPointer { pathBuf in
+                    let pathPtr = UnsafeMutableRawPointer(mutating: pathBuf.baseAddress!)
+                    return  AuthorizationItem(
+                        name: nameBuf.baseAddress!,
+                        valueLength: path.count,
+                        value: pathPtr,
+                        flags: 0
+                    )
+                }
             }
         }
         
+        let itemsCount = UInt32(items.count)
         var rights: AuthorizationRights =
-            withUnsafeMutablePointer(to: &items) { items in
-                return AuthorizationRights(count: 1, items: items)
+            items.withUnsafeMutableBufferPointer { itemsBuf in
+                return AuthorizationRights(count: itemsCount, items: itemsBuf.baseAddress)
             }
         
         let flags: AuthorizationFlags = [
@@ -80,6 +61,52 @@ public struct Authorization {
             return .failure(.copyRights(err))
         }
         
+        return .success(authorizationRef!)
+    }
+
+    /// Runs an executable tool with root privileges.
+    /// - Parameters:
+    ///   - authorization: An authorization reference referring to the authorization session. Pass NIL if you want use the implicit authorization.
+    ///   - pathToTool: The full POSIX pathname of the tool to execute.
+    ///   - arguments: Array of strings to send to the tool.
+    /// - Returns: A file handle to the output of the command or an error.
+    public static func executeWithPrivileges(
+        authorization: AuthorizationRef? = nil,
+        pathToTool: String,
+        arguments: [String] = []
+    ) -> Result<FileHandle, Error> {
+        let RTLD_DEFAULT = UnsafeMutableRawPointer(bitPattern: -2)
+        var fn: @convention(c) (
+            AuthorizationRef,
+            UnsafePointer<CChar>,  // path
+            AuthorizationFlags,
+            UnsafePointer<UnsafePointer<CChar>?>,  // args
+            UnsafeMutablePointer<UnsafeMutablePointer<FILE>>?
+        ) -> OSStatus
+        fn = unsafeBitCast(
+            dlsym(RTLD_DEFAULT, "AuthorizationExecuteWithPrivileges"),
+            to: type(of: fn)
+        )
+        
+        var authorization = authorization
+        let useImplicitAuthorization = authorization == nil
+        
+        if useImplicitAuthorization {
+            switch Self.authorize(pathsToTools: [pathToTool]) {
+            case .success(let implicitAuthorization):
+                authorization = implicitAuthorization
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+        
+        defer {
+            if useImplicitAuthorization {
+                AuthorizationFree(authorization!, [.destroyRights])
+            }
+        }
+        
+        var pathCString = pathToTool.cString(using: .utf8)!
         let argsCString = arguments.map { $0.cString(using: .utf8)! }
         var argsArgvStyle = Array<UnsafePointer<CChar>?>(
             repeating: nil,
@@ -89,12 +116,13 @@ public struct Authorization {
             argsArgvStyle[idx] = UnsafePointer<CChar>?(arg)
         }
         
+        var err: OSStatus
         var file = FILE()
         let fh: FileHandle?
         
         (err, fh) = withUnsafeMutablePointer(to: &file) { file in
             var pipe = file
-            let err = fn(authorizationRef!, &pathCString, [], &argsArgvStyle, &pipe)
+            let err = fn(authorization!, &pathCString, [], &argsArgvStyle, &pipe)
             guard err == errAuthorizationSuccess else {
                 return (err, nil)
             }
