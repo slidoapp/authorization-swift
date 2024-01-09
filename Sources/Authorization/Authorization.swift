@@ -5,9 +5,11 @@ public struct Authorization {
     
     /// Creates an authorizartion allowing to use specified executabale tools with admin privileges.
     /// - Parameter pathsToTools: A set containing paths to tools for which we require authorization.
+    /// - Parameter prompt: A custom prompt (text) displayed in the authorization dialog instead of the system one.
     /// - Returns: An opaque reference to an authorization object authorized to the specified tools or an error.
     public static func authorize(
-        pathsToTools: Set<String>
+        pathsToTools: Set<String>,
+        prompt: String? = nil
     ) -> Result<AuthorizationRef, AuthorizationError> {
         var authorizationRef: AuthorizationRef? = nil
         var err = AuthorizationCreate(nil, nil, [], &authorizationRef)
@@ -22,7 +24,7 @@ public struct Authorization {
             name.withUnsafeBufferPointer { nameBuf in
                 path.withUnsafeBufferPointer { pathBuf in
                     let pathPtr = UnsafeMutableRawPointer(mutating: pathBuf.baseAddress!)
-                    return  AuthorizationItem(
+                    return AuthorizationItem(
                         name: nameBuf.baseAddress!,
                         valueLength: path.count,
                         value: pathPtr,
@@ -44,13 +46,42 @@ public struct Authorization {
             .extendRights,
         ]
         
-        err = AuthorizationCopyRights(
-            authorizationRef!,
-            &rights,
-            nil,
-            flags,
-            nil
-        )
+        if let prompt {
+            let name = kAuthorizationEnvironmentPrompt.cString(using: .utf8)!
+            let promptCString = prompt.cString(using: .utf8)!
+            
+            var promptItem = name.withUnsafeBufferPointer { nameBuf in
+                promptCString.withUnsafeBufferPointer { promptBuf in
+                    AuthorizationItem(
+                        name: nameBuf.baseAddress!,
+                        valueLength: promptCString.count,
+                        value: UnsafeMutableRawPointer(mutating: promptBuf.baseAddress!),
+                        flags: 0
+                    )
+                }
+            }
+            
+            var environment = withUnsafeMutablePointer(to: &promptItem) { promptItemPtr in
+                AuthorizationEnvironment(count: 1, items: promptItemPtr)
+            }
+            
+            err = AuthorizationCopyRights(
+                authorizationRef!,
+                &rights,
+                &environment,
+                flags,
+                nil
+            )
+        } else {
+            err = AuthorizationCopyRights(
+                authorizationRef!,
+                &rights,
+                nil,
+                flags,
+                nil
+            )
+        }
+        
         guard err == errAuthorizationSuccess else {
             return .failure(.copyRights(err))
         }
