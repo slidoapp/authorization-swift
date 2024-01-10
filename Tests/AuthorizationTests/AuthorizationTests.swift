@@ -23,4 +23,11 @@
             let fh = try Authorization.executeWithPrivileges("/bin/ls /").get()
             print(String(bytes: fh.readDataToEndOfFile(), encoding: .utf8)!)
         }
+        
+        func testAuthorizeWithCustomPrompt() throws {
+            throw XCTSkip("user required")
+
+            let authorization = try Authorization.authorize(pathsToTools: ["/bin/ls"], prompt: "Custom prompt for testing.").get()
+            AuthorizationFree(authorization, [.destroyRights])
+        }
     }
