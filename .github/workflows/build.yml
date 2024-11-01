@@ -14,13 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift: ['swift6', 'swift5']
+        swift: ['swift6.0', 'swift5.10', 'swift5.9']
         include:
-          - swift: 'swift6'
+          - swift: 'swift6.0'
             xcode-path: '/Applications/Xcode_16.0.0.app'
             macos: 'macos-15'
-          - swift: 'swift5'
+          - swift: 'swift5.10'
             xcode-path: '/Applications/Xcode_15.4.0.app'
+            macos: 'macos-14'
+          - swift: 'swift5.9'
+            xcode-path: '/Applications/Xcode_15.2.0.app'
             macos: 'macos-14'
     
     env:
