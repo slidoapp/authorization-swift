@@ -32,8 +32,17 @@ jobs:
     - name: checkout
       uses: actions/checkout@v4
 
+    - name: brew bundle
+      run: brew bundle
+
     - name: swift version
       run: swift --version
+
+    - name: swiftlint version
+      run: swiftlint --version
+
+    - name: lint
+      run: swiftlint lint --reporter github-actions-logging
 
     - name: build
       run: swift build -v

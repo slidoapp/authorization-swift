@@ -1,0 +1,15 @@
+included: 
+  - Sources
+  - Tests
+  
+opt_in_rules:
+  - duplicate_imports
+
+disabled_rules:
+  - trailing_whitespace
+  - trailing_comma
+  - identifier_name
+  - line_length
+  - function_body_length
+
+check_for_updates: false
