@@ -10,7 +10,7 @@ permissions:
   checks: write
 
 jobs:
-  build-swift:
+  build:
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +25,9 @@ jobs:
           - swift: 'swift5.9'
             xcode-path: '/Applications/Xcode_15.2.0.app'
             macos: 'macos-14'
-    
+
+    name: 'build-${{ matrix.swift }}'
+
     env:
       DEVELOPER_DIR: ${{ matrix.xcode-path }}
 
@@ -54,12 +56,12 @@ jobs:
       continue-on-error: true
       run: swift test --parallel --xunit-output 'authorization-swift-tests.xml'
   
-    - name: report unit test results
+    - name: tests report
       uses: dorny/test-reporter@31a54ee7ebcacc03a09ea97a7e5465a47b84aea5 # 1.9.1
       if: always()
-      id: results-swift-tests
+      id: tests-report
       with:
-        name: 'results-swift-tests-${{ matrix.swift }}'
+        name: 'tests-report-${{ matrix.swift }}'
         path: 'authorization-swift-tests.xml'
         reporter: swift-xunit
         fail-on-error: true
@@ -76,6 +78,6 @@ jobs:
           echo "macOS: \`${{ matrix.macos }}\`  "
           echo "Xcode: \`${{ matrix.xcode-path }}\` "
           echo ""
-          echo "Unit Tests Conclusion: \`${{ steps.results-swift-tests.outputs.conclusion }}\`  "
-          echo "Unit Tests Report: <${{ steps.results-swift-tests.outputs.url_html }}>"
+          echo "Unit Tests Conclusion: \`${{ steps.tests-report.outputs.conclusion }}\`  "
+          echo "Unit Tests Report: <${{ steps.tests-report.outputs.url_html }}>"
         } >> $GITHUB_STEP_SUMMARY
